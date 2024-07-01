@@ -1,5 +1,5 @@
 import { DubApiError } from "@/lib/api/errors";
-import { withAuth } from "@/lib/auth";
+import { withWorkspace } from "@/lib/auth";
 import jackson from "@/lib/jackson";
 import z from "@/lib/zod";
 import { NextResponse } from "next/server";
@@ -14,28 +14,33 @@ const deleteDirectorySchema = z.object({
 });
 
 // GET /api/workspaces/[idOrSlug]/scim – get all SCIM directories
-export const GET = withAuth(async ({ workspace }) => {
-  const { directorySyncController } = await jackson();
+export const GET = withWorkspace(
+  async ({ workspace }) => {
+    const { directorySyncController } = await jackson();
 
-  const { data, error } =
-    await directorySyncController.directories.getByTenantAndProduct(
-      workspace.id,
-      "Dub",
-    );
-  if (error) {
-    throw new DubApiError({
-      code: "internal_server_error",
-      message: error.message,
+    const { data, error } =
+      await directorySyncController.directories.getByTenantAndProduct(
+        workspace.id,
+        "Dub",
+      );
+    if (error) {
+      throw new DubApiError({
+        code: "internal_server_error",
+        message: error.message,
+      });
+    }
+
+    return NextResponse.json({
+      directories: data,
     });
-  }
-
-  return NextResponse.json({
-    directories: data,
-  });
-});
+  },
+  {
+    requiredScopes: ["workspaces.read"],
+  },
+);
 
 // POST /api/workspaces/[idOrSlug]/scim – create a new SCIM directory
-export const POST = withAuth(
+export const POST = withWorkspace(
   async ({ req, workspace }) => {
     const { provider = "okta-scim-v2", currentDirectoryId } =
       createDirectorySchema.parse(await req.json());
@@ -56,14 +61,13 @@ export const POST = withAuth(
     return NextResponse.json(data);
   },
   {
-    requiredRole: ["owner"],
+    requiredScopes: ["workspaces.write"],
     requiredPlan: ["enterprise"],
   },
 );
 
 // DELETE /api/workspaces/[idOrSlug]/scim – delete a SCIM directory
-
-export const DELETE = withAuth(
+export const DELETE = withWorkspace(
   async ({ searchParams }) => {
     const { directoryId } = deleteDirectorySchema.parse(searchParams);
 
@@ -82,6 +86,6 @@ export const DELETE = withAuth(
     return NextResponse.json(data);
   },
   {
-    requiredRole: ["owner"],
+    requiredScopes: ["workspaces.write"],
   },
 );

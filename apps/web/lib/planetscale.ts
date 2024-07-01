@@ -1,6 +1,6 @@
 import { nanoid, punyEncode } from "@dub/utils";
 import { connect } from "@planetscale/database";
-import { DomainProps, WorkspaceProps } from "./types";
+import { WorkspaceProps } from "./types";
 
 export const DATABASE_URL =
   process.env.PLANETSCALE_DATABASE_URL || process.env.DATABASE_URL;
@@ -15,24 +15,12 @@ export const getWorkspaceViaEdge = async (workspaceId: string) => {
   if (!DATABASE_URL) return null;
 
   const { rows } =
-    (await conn.execute("SELECT * FROM Project WHERE id = ?", [
-      workspaceId.replace("ws_", ""),
-    ])) || {};
+    (await conn.execute<WorkspaceProps>(
+      "SELECT * FROM Project WHERE id = ? LIMIT 1",
+      [workspaceId.replace("ws_", "")],
+    )) || {};
 
-  return rows && Array.isArray(rows) && rows.length > 0
-    ? (rows[0] as WorkspaceProps)
-    : null;
-};
-
-export const getDomainViaEdge = async (domain: string) => {
-  if (!DATABASE_URL) return null;
-
-  const { rows } =
-    (await conn.execute("SELECT * FROM Domain WHERE slug = ?", [domain])) || {};
-
-  return rows && Array.isArray(rows) && rows.length > 0
-    ? (rows[0] as DomainProps)
-    : null;
+  return rows && Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
 };
 
 export const checkIfKeyExists = async (domain: string, key: string) => {
@@ -43,6 +31,16 @@ export const checkIfKeyExists = async (domain: string, key: string) => {
       "SELECT 1 FROM Link WHERE domain = ? AND `key` = ? LIMIT 1",
       [domain, punyEncode(decodeURIComponent(key))], // we need to make sure that the key is always URI-decoded + punycode-encoded (cause that's how we store it in MySQL)
     )) || {};
+
+  return rows && Array.isArray(rows) && rows.length > 0;
+};
+
+export const checkIfUserExists = async (userId: string) => {
+  if (!DATABASE_URL) return null;
+
+  const { rows } =
+    (await conn.execute("SELECT 1 FROM User WHERE id = ? LIMIT 1", [userId])) ||
+    {};
 
   return rows && Array.isArray(rows) && rows.length > 0;
 };
@@ -74,29 +72,10 @@ export const getLinkViaEdge = async (domain: string, key: string) => {
         geo: object | null;
         projectId: string;
         publicStats: number;
+        expiredUrl: string | null;
       })
     : null;
 };
-
-export async function getDomainOrLink({
-  domain,
-  key,
-}: {
-  domain: string;
-  key?: string;
-}) {
-  if (!key || key === "_root") {
-    const data = await getDomainViaEdge(domain);
-    if (!data) return null;
-    return {
-      ...data,
-      key: "_root",
-      url: data?.target,
-    };
-  } else {
-    return await getLinkViaEdge(domain, key);
-  }
-}
 
 export async function getRandomKey({
   domain,

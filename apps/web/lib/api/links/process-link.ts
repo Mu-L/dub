@@ -1,63 +1,88 @@
-import { isBlacklistedDomain, isBlacklistedKey } from "@/lib/edge-config";
-import { getRandomKey } from "@/lib/planetscale";
-import prisma from "@/lib/prisma";
-import { LinkWithTagIdsProps, WorkspaceProps } from "@/lib/types";
+import {
+  isBetaTester,
+  isBlacklistedDomain,
+  updateConfig,
+} from "@/lib/edge-config";
+import { getPangeaDomainIntel } from "@/lib/pangea";
+import { checkIfUserExists, getRandomKey } from "@/lib/planetscale";
+import { prisma } from "@/lib/prisma";
+import { NewLinkProps, ProcessedLinkProps, WorkspaceProps } from "@/lib/types";
 import {
   DUB_DOMAINS,
   SHORT_DOMAIN,
+  getApexDomain,
   getDomainWithoutWWW,
   getUrlFromString,
   isDubDomain,
   isValidUrl,
+  log,
   parseDateTime,
 } from "@dub/utils";
 import { combineTagIds, keyChecks, processKey } from "./utils";
 
-export async function processLink({
+export async function processLink<T extends Record<string, any>>({
   payload,
   workspace,
   userId,
   bulk = false,
   skipKeyChecks = false, // only skip when key doesn't change (e.g. when editing a link)
 }: {
-  payload: LinkWithTagIdsProps;
-  workspace?: WorkspaceProps;
+  payload: NewLinkProps & T;
+  workspace?: Pick<WorkspaceProps, "id" | "plan">;
   userId?: string;
   bulk?: boolean;
   skipKeyChecks?: boolean;
-}) {
+}): Promise<
+  | {
+      link: NewLinkProps & T;
+      error: string;
+      code?: string;
+      status?: number;
+    }
+  | {
+      link: ProcessedLinkProps & T;
+      error: null;
+      code?: never;
+      status?: never;
+    }
+> {
   let {
     domain,
     key,
     url,
     image,
     proxy,
+    trackConversion,
     password,
     rewrite,
-    expiresAt,
     expiredUrl,
     ios,
     android,
     geo,
+    doIndex,
+    tagNames,
     createdAt,
   } = payload;
 
+  let expiresAt: string | Date | null | undefined = payload.expiresAt;
   const tagIds = combineTagIds(payload);
 
-  // url checks
-  if (!url) {
+  // if URL is defined, perform URL checks
+  if (url) {
+    url = getUrlFromString(url);
+    if (!isValidUrl(url)) {
+      return {
+        link: payload,
+        error: "Invalid destination URL",
+        code: "unprocessable_entity",
+      };
+    }
+    // only root domain links can have empty desintation URL
+  } else if (key !== "_root") {
     return {
       link: payload,
-      error: "Missing destination url.",
+      error: "Missing destination URL",
       code: "bad_request",
-    };
-  }
-  url = getUrlFromString(url);
-  if (!isValidUrl(url)) {
-    return {
-      link: payload,
-      error: "Invalid destination url.",
-      code: "unprocessable_entity",
     };
   }
 
@@ -66,7 +91,25 @@ export async function processLink({
     (!workspace || workspace.plan === "free") &&
     (!createdAt || new Date(createdAt) > new Date("2024-01-19"))
   ) {
-    if (proxy || password || rewrite || expiresAt || ios || android || geo) {
+    if (key === "_root" && url) {
+      return {
+        link: payload,
+        error:
+          "You can only set a redirect for a root domain link on a Pro plan and above. Upgrade to Pro to use this feature.",
+        code: "forbidden",
+      };
+    }
+
+    if (
+      proxy ||
+      password ||
+      rewrite ||
+      expiresAt ||
+      ios ||
+      android ||
+      geo ||
+      doIndex
+    ) {
       const proFeaturesString = [
         proxy && "custom social media cards",
         password && "password protection",
@@ -75,6 +118,7 @@ export async function processLink({
         ios && "iOS targeting",
         android && "Android targeting",
         geo && "geo targeting",
+        doIndex && "search engine indexing",
       ]
         .filter(Boolean)
         .join(", ")
@@ -89,26 +133,36 @@ export async function processLink({
     }
   }
 
+  const domains = workspace
+    ? await prisma.domain.findMany({
+        where: { projectId: workspace.id },
+      })
+    : [];
+
   // if domain is not defined, set it to the workspace's primary domain
   if (!domain) {
-    domain = workspace?.domains?.find((d) => d.primary)?.slug || SHORT_DOMAIN;
+    domain = domains?.find((d) => d.primary)?.slug || SHORT_DOMAIN;
   }
 
-  // checks for default short domain
-  if (domain === SHORT_DOMAIN) {
-    const keyBlacklisted = await isBlacklistedKey(key);
-    if (keyBlacklisted) {
-      return {
-        link: payload,
-        error: "Invalid key.",
-        code: "unprocessable_entity",
-      };
+  // checks for dub.sh links
+  if (domain === "dub.sh") {
+    // check if user exists (if userId is passed)
+    if (userId) {
+      const userExists = await checkIfUserExists(userId);
+      if (!userExists) {
+        return {
+          link: payload,
+          error: "Session expired. Please log in again.",
+          code: "not_found",
+        };
+      }
     }
-    const domainBlacklisted = await isBlacklistedDomain(url);
-    if (domainBlacklisted) {
+
+    const isMaliciousLink = await maliciousLinkCheck(url);
+    if (isMaliciousLink) {
       return {
         link: payload,
-        error: "Invalid url.",
+        error: "Malicious URL detected",
         code: "unprocessable_entity",
       };
     }
@@ -129,7 +183,7 @@ export async function processLink({
     }
 
     // else, check if the domain belongs to the workspace
-  } else if (!workspace?.domains?.find((d) => d.slug === domain)) {
+  } else if (!domains?.find((d) => d.slug === domain)) {
     return {
       link: payload,
       error: "Domain does not belong to workspace.",
@@ -155,10 +209,21 @@ export async function processLink({
     key = processedKey;
 
     const response = await keyChecks({ domain, key, workspace });
-    if (response.error) {
+    if (response.error && response.code) {
       return {
         link: payload,
-        ...response,
+        error: response.error,
+        code: response.code,
+      };
+    }
+  }
+
+  if (trackConversion) {
+    if (!workspace || !(await isBetaTester(workspace.id))) {
+      return {
+        link: payload,
+        error: "Conversion tracking is only available for beta testers.",
+        code: "forbidden",
       };
     }
   }
@@ -182,7 +247,7 @@ export async function processLink({
     // only perform tag validity checks if:
     // - not bulk creation (we do that check separately in the route itself)
     // - tagIds are present
-  } else if (tagIds.length > 0) {
+  } else if (tagIds && tagIds.length > 0) {
     const tags = await prisma.tag.findMany({
       select: {
         id: true,
@@ -198,6 +263,31 @@ export async function processLink({
           tagIds
             .filter(
               (tagId) => tags.find(({ id }) => tagId === id) === undefined,
+            )
+            .join(", "),
+        code: "unprocessable_entity",
+      };
+    }
+  } else if (tagNames && tagNames.length > 0) {
+    const tags = await prisma.tag.findMany({
+      select: {
+        name: true,
+      },
+      where: {
+        projectId: workspace?.id,
+        name: { in: tagNames },
+      },
+    });
+
+    if (tags.length !== tagNames.length) {
+      return {
+        link: payload,
+        error:
+          "Invalid tagNames detected: " +
+          tagNames
+            .filter(
+              (tagName) =>
+                tags.find(({ name }) => tagName === name) === undefined,
             )
             .join(", "),
         code: "unprocessable_entity",
@@ -260,4 +350,55 @@ export async function processLink({
     },
     error: null,
   };
+}
+
+async function maliciousLinkCheck(url: string) {
+  const [domain, apexDomain] = [getDomainWithoutWWW(url), getApexDomain(url)];
+
+  if (!domain) {
+    return false;
+  }
+
+  const domainBlacklisted = await isBlacklistedDomain({ domain, apexDomain });
+  if (domainBlacklisted === true) {
+    return true;
+  } else if (domainBlacklisted === "whitelisted") {
+    return false;
+  }
+
+  // Check with Pangea for domain reputation
+  if (process.env.PANGEA_API_KEY) {
+    try {
+      const response = await getPangeaDomainIntel(domain);
+
+      const verdict = response.result.data[apexDomain].verdict;
+      console.log("Pangea verdict for domain", apexDomain, verdict);
+
+      if (verdict === "benign") {
+        await updateConfig({
+          key: "whitelistedDomains",
+          value: domain,
+        });
+        return false;
+      } else if (verdict === "malicious" || verdict === "suspicious") {
+        await Promise.all([
+          updateConfig({
+            key: "domains",
+            value: domain,
+          }),
+          log({
+            message: `Suspicious link detected via Pangea → ${url}`,
+            type: "links",
+            mention: true,
+          }),
+        ]);
+
+        return true;
+      }
+    } catch (e) {
+      console.error("Error checking domain with Pangea", e);
+    }
+  }
+
+  return false;
 }

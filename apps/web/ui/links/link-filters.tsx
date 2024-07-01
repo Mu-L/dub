@@ -20,6 +20,7 @@ import {
   useToastWithUndo,
 } from "@dub/ui";
 import {
+  DUB_WORKSPACE_ID,
   SWIPE_REVEAL_ANIMATION_SETTINGS,
   isDubDomain,
   nFormatter,
@@ -190,9 +191,10 @@ const DomainsFilter = () => {
   const searchParams = useSearchParams();
   const { queryParams } = useRouterStuff();
   const { data: domains } = useLinksCount({ groupBy: "domain" });
-  const { allActiveDomains } = useDomains();
+  const { id: workspaceId } = useWorkspace();
+  const { activeWorkspaceDomains, activeDefaultDomains } = useDomains();
 
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const [showMore, setShowMore] = useState(false);
 
   const { AddEditDomainModal, AddDomainButton } = useAddEditDomainModal({
@@ -204,13 +206,38 @@ const DomainsFilter = () => {
   });
 
   const options = useMemo(() => {
-    return allActiveDomains
-      .map((domain) => ({
-        ...domain,
-        count: domains?.find(({ domain: d }) => d === domain.slug)?._count || 0,
-      }))
-      .sort((a, b) => b.count - a.count);
-  }, [allActiveDomains, domains]);
+    if (domains?.length === 0) return [];
+
+    const workspaceDomains = activeWorkspaceDomains?.map((domain) => ({
+      ...domain,
+      count: domains?.find(({ domain: d }) => d === domain.slug)?._count || 0,
+    }));
+
+    const defaultDomains =
+      workspaceId === `ws_${DUB_WORKSPACE_ID}`
+        ? []
+        : activeDefaultDomains
+            ?.map((domain) => ({
+              ...domain,
+              count:
+                domains?.find(({ domain: d }) => d === domain.slug)?._count ||
+                0,
+            }))
+            .filter((d) => d.count > 0);
+
+    const finalOptions = [
+      ...(workspaceDomains || []),
+      ...(defaultDomains || []),
+    ].sort((a, b) => b.count - a.count);
+
+    return finalOptions;
+  }, [activeWorkspaceDomains, activeDefaultDomains, domains, workspaceId]);
+
+  useEffect(() => {
+    if (options.length > 0) {
+      setCollapsed(false);
+    }
+  }, []);
 
   return (
     <fieldset className="overflow-hidden py-6">
@@ -235,35 +262,41 @@ const DomainsFilter = () => {
             className="mt-4 grid gap-2"
             {...SWIPE_REVEAL_ANIMATION_SETTINGS}
           >
-            {options.slice(0, showMore ? options.length : 4).map((domain) => (
-              <div
-                key={domain.slug}
-                className="group relative flex cursor-pointer items-center space-x-3 rounded-md bg-gray-50 transition-all hover:bg-gray-100"
-              >
-                <input
-                  id={domain.slug}
-                  name={domain.slug}
-                  checked={searchParams?.get("domain") === domain.slug}
-                  onChange={() => {
-                    queryParams({
-                      set: {
-                        domain: domain.slug,
-                      },
-                      del: "page",
-                    });
-                  }}
-                  type="radio"
-                  className="ml-3 h-4 w-4 cursor-pointer rounded-full border-gray-300 text-black focus:outline-none focus:ring-0"
-                />
-                <label
-                  htmlFor={domain.slug}
-                  className="flex w-full cursor-pointer items-center justify-between px-3 py-2 pl-0 text-sm font-medium text-gray-700"
+            {options.length === 0 ? ( // if the workspace has no domains
+              <p className="text-center text-sm text-gray-500">
+                No domains yet.
+              </p>
+            ) : (
+              options.slice(0, showMore ? options.length : 4).map((domain) => (
+                <div
+                  key={domain.slug}
+                  className="group relative flex cursor-pointer items-center space-x-3 rounded-md bg-gray-50 transition-all hover:bg-gray-100"
                 >
-                  <p>{truncate(punycode(domain.slug), 24)}</p>
-                  <DomainPopover domain={domain} count={domain.count} />
-                </label>
-              </div>
-            ))}
+                  <input
+                    id={domain.slug}
+                    name={domain.slug}
+                    checked={searchParams?.get("domain") === domain.slug}
+                    onChange={() => {
+                      queryParams({
+                        set: {
+                          domain: domain.slug,
+                        },
+                        del: "page",
+                      });
+                    }}
+                    type="radio"
+                    className="ml-3 h-4 w-4 cursor-pointer rounded-full border-gray-300 text-black focus:outline-none focus:ring-0"
+                  />
+                  <label
+                    htmlFor={domain.slug}
+                    className="flex w-full cursor-pointer items-center justify-between px-3 py-2 pl-0 text-sm font-medium text-gray-700"
+                  >
+                    <p>{truncate(punycode(domain.slug), 24)}</p>
+                    <DomainPopover domain={domain} count={domain.count} />
+                  </label>
+                </div>
+              ))
+            )}
             {options.length > 4 && (
               <button
                 onClick={() => setShowMore(!showMore)}
@@ -301,14 +334,11 @@ const DomainPopover = ({
 
   const archiveDomain = (archive: boolean) => {
     return fetch(`/api/domains/${domain.slug}?workspaceId=${id}`, {
-      method: "PUT",
+      method: "PATCH",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        ...domain,
-        archived: archive,
-      }),
+      body: JSON.stringify({ archived: archive }),
     });
   };
 
@@ -335,17 +365,16 @@ const DomainPopover = ({
         await mutateDefaultDomains();
         toastWithUndo({
           id: "domain-archive-undo-toast",
-          message: `Successfully archived domain!`,
-          undo: async () => {
+          message: "Successfully archived domain!",
+          undo: () =>
             toast.promise(archiveDefaultDomain(false), {
               loading: "Undo in progress...",
-              error: "Failed to roll back changes. An error occurred.",
-              success: async () => {
-                await mutateDefaultDomains();
+              success: () => {
+                mutateDefaultDomains();
                 return "Undo successful! Changes reverted.";
               },
-            });
-          },
+              error: "Failed to roll back changes. An error occurred.",
+            }),
           duration: 5000,
         });
       } else {
@@ -360,16 +389,15 @@ const DomainPopover = ({
         toastWithUndo({
           id: "domain-archive-undo-toast",
           message: `Successfully archived domain!`,
-          undo: async () => {
+          undo: () =>
             toast.promise(archiveDomain(false), {
               loading: "Undo in progress...",
-              error: "Failed to roll back changes. An error occurred.",
-              success: async () => {
-                await mutateDomains();
+              success: () => {
+                mutateDomains();
                 return "Undo successful! Changes reverted.";
               },
-            });
-          },
+              error: "Failed to roll back changes. An error occurred.",
+            }),
           duration: 5000,
         });
       } else {

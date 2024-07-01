@@ -14,7 +14,7 @@ export const getUrlFromString = (str: string) => {
       return new URL(`https://${str}`).toString();
     }
   } catch (_) {}
-  return "";
+  return str;
 };
 
 export const getSearchParams = (url: string) => {
@@ -23,6 +23,21 @@ export const getSearchParams = (url: string) => {
 
   new URL(url).searchParams.forEach(function (val, key) {
     params[key] = val;
+  });
+
+  return params;
+};
+
+export const getSearchParamsWithArray = (url: string) => {
+  let params = {} as Record<string, string | string[]>;
+
+  new URL(url).searchParams.forEach(function (val, key) {
+    if (key in params) {
+      const param = params[key];
+      Array.isArray(param) ? param.push(val) : (params[key] = [param, val]);
+    } else {
+      params[key] = val;
+    }
   });
 
   return params;

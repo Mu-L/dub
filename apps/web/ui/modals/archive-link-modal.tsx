@@ -1,6 +1,6 @@
 import useWorkspace from "@/lib/swr/use-workspace";
 import { LinkProps } from "@/lib/types";
-import { Button, Modal, useToastWithUndo } from "@dub/ui";
+import { Button, LinkLogo, Modal, useToastWithUndo } from "@dub/ui";
 import { getApexDomain, linkConstructor } from "@dub/utils";
 import {
   Dispatch,
@@ -12,7 +12,6 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { mutate } from "swr";
-import LinkLogo from "../links/link-logo";
 
 const sendArchiveRequest = ({
   linkId,
@@ -23,9 +22,9 @@ const sendArchiveRequest = ({
   archive: boolean;
   workspaceId?: string;
 }) => {
-  const baseUrl = `/api/links/${linkId}/archive`;
-  return fetch(`${baseUrl}?workspaceId=${workspaceId}`, {
-    method: archive ? "POST" : "DELETE",
+  return fetch(`/api/links/${linkId}?workspaceId=${workspaceId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ archived: archive }),
     headers: {
       "Content-Type": "application/json",
     },

@@ -1,97 +1,98 @@
+import { addDomainToVercel, validateDomain } from "@/lib/api/domains";
+import { DubApiError, exceededLimitError } from "@/lib/api/errors";
+import { parseRequestBody } from "@/lib/api/utils";
+import { withWorkspace } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 import {
-  addDomainToVercel,
-  setRootDomain,
-  validateDomain,
-} from "@/lib/api/domains";
-import { exceededLimitError } from "@/lib/api/errors";
-import { withAuth } from "@/lib/auth";
-import prisma from "@/lib/prisma";
+  DomainSchema,
+  createDomainBodySchema,
+} from "@/lib/zod/schemas/domains";
 import { NextResponse } from "next/server";
+import { z } from "zod";
 
 // GET /api/domains – get all domains for a workspace
-export const GET = withAuth(async ({ workspace }) => {
-  const domains = await prisma.domain.findMany({
-    where: {
-      projectId: workspace.id,
-    },
-    select: {
-      slug: true,
-      verified: true,
-      primary: true,
-      archived: true,
-      target: true,
-      type: true,
-      placeholder: true,
-      clicks: true,
-      expiredUrl: true,
-    },
-  });
-  return NextResponse.json(domains);
-});
+export const GET = withWorkspace(
+  async ({ workspace }) => {
+    const domains = await prisma.domain.findMany({
+      where: {
+        projectId: workspace.id,
+      },
+    });
+
+    return NextResponse.json(z.array(DomainSchema).parse(domains));
+  },
+  {
+    requiredScopes: ["domains.read"],
+  },
+);
 
 // POST /api/domains - add a domain
-export const POST = withAuth(async ({ req, workspace }) => {
-  const {
-    slug: domain,
-    target,
-    type,
-    expiredUrl,
-    placeholder,
-  } = await req.json();
+export const POST = withWorkspace(
+  async ({ req, workspace }) => {
+    const body = await parseRequestBody(req);
+    const { slug, placeholder, expiredUrl } =
+      createDomainBodySchema.parse(body);
 
-  if (workspace.domains.length >= workspace.domainsLimit) {
-    return new Response(
-      exceededLimitError({
-        plan: workspace.plan,
-        limit: workspace.domainsLimit,
-        type: "domains",
-      }),
-      { status: 403 },
-    );
-  }
+    const totalDomains = await prisma.domain.count({
+      where: {
+        projectId: workspace.id,
+      },
+    });
 
-  const validDomain = await validateDomain(domain);
+    if (totalDomains >= workspace.domainsLimit) {
+      return new Response(
+        exceededLimitError({
+          plan: workspace.plan,
+          limit: workspace.domainsLimit,
+          type: "domains",
+        }),
+        { status: 403 },
+      );
+    }
 
-  if (validDomain !== true) {
-    return new Response(validDomain, { status: 422 });
-  }
-  const vercelResponse = await addDomainToVercel(domain);
+    if (workspace.plan === "free" && expiredUrl) {
+      throw new DubApiError({
+        code: "forbidden",
+        message:
+          "You can only use Default Expiration URLs on a Pro plan and above. Upgrade to Pro to use these features.",
+      });
+    }
 
-  if (
-    vercelResponse.error &&
-    vercelResponse.error.code !== "domain_already_in_use" // ignore this error
-  ) {
-    return new Response(vercelResponse.error.message, { status: 422 });
-  }
-  /* 
-          If the domain is being added, we need to:
-            1. Add the domain to Vercel
-            2. If there's a landing page set, update the root domain in Redis
-            3. If the workspace has no domains (meaning this is the first domain added), set it as primary
-        */
-  const response = await prisma.domain.create({
-    data: {
-      slug: domain,
-      type,
-      projectId: workspace.id,
-      primary: workspace.domains.length === 0,
-      placeholder,
-      ...(workspace.plan !== "free" && {
-        target,
-        expiredUrl,
-      }),
-    },
-  });
+    const validDomain = await validateDomain(slug);
 
-  await setRootDomain({
-    id: response.id,
-    domain,
-    projectId: workspace.id,
-    ...(workspace.plan !== "free" && {
-      url: target,
-    }),
-    rewrite: type === "rewrite",
-  });
+    if (validDomain.error && validDomain.code) {
+      throw new DubApiError({
+        code: validDomain.code,
+        message: validDomain.error,
+      });
+    }
 
-  return NextResponse.json(response);
-});
+    const vercelResponse = await addDomainToVercel(slug);
+
+    if (
+      vercelResponse.error &&
+      vercelResponse.error.code !== "domain_already_in_use" // ignore this error
+    ) {
+      return new Response(vercelResponse.error.message, { status: 422 });
+    }
+
+    const domainRecord = await prisma.domain.create({
+      data: {
+        slug: slug,
+        projectId: workspace.id,
+        primary: totalDomains === 0,
+        ...(placeholder && { placeholder }),
+        ...(workspace.plan !== "free" && {
+          expiredUrl,
+        }),
+      },
+    });
+
+    return NextResponse.json(DomainSchema.parse(domainRecord), {
+      status: 201,
+    });
+  },
+  {
+    requiredScopes: ["domains.write"],
+  },
+);

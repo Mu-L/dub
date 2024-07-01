@@ -1,7 +1,7 @@
 import { DubApiError, exceededLimitError } from "@/lib/api/errors";
 import { inviteUser } from "@/lib/api/users";
-import { withAuth } from "@/lib/auth";
-import prisma from "@/lib/prisma";
+import { withWorkspace } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 import z from "@/lib/zod";
 import { NextResponse } from "next/server";
 
@@ -10,21 +10,26 @@ const emailInviteSchema = z.object({
 });
 
 // GET /api/workspaces/[idOrSlug]/invites – get invites for a specific workspace
-export const GET = withAuth(async ({ workspace }) => {
-  const invites = await prisma.projectInvite.findMany({
-    where: {
-      projectId: workspace.id,
-    },
-    select: {
-      email: true,
-      createdAt: true,
-    },
-  });
-  return NextResponse.json(invites);
-});
+export const GET = withWorkspace(
+  async ({ workspace }) => {
+    const invites = await prisma.projectInvite.findMany({
+      where: {
+        projectId: workspace.id,
+      },
+      select: {
+        email: true,
+        createdAt: true,
+      },
+    });
+    return NextResponse.json(invites);
+  },
+  {
+    requiredScopes: ["workspaces.read"],
+  },
+);
 
 // POST /api/workspaces/[idOrSlug]/invites – invite a teammate
-export const POST = withAuth(
+export const POST = withWorkspace(
   async ({ req, workspace, session }) => {
     const { email } = emailInviteSchema.parse(await req.json());
 
@@ -41,6 +46,9 @@ export const POST = withAuth(
         prisma.projectUsers.count({
           where: {
             projectId: workspace.id,
+            user: {
+              isMachine: false,
+            },
           },
         }),
         prisma.projectInvite.count({
@@ -77,12 +85,12 @@ export const POST = withAuth(
     return NextResponse.json({ message: "Invite sent" });
   },
   {
-    requiredRole: ["owner"],
+    requiredScopes: ["workspaces.write"],
   },
 );
 
 // DELETE /api/workspaces/[idOrSlug]/invites – delete a pending invite
-export const DELETE = withAuth(
+export const DELETE = withWorkspace(
   async ({ searchParams, workspace }) => {
     const { email } = emailInviteSchema.parse(searchParams);
     const response = await prisma.projectInvite.delete({
@@ -96,6 +104,6 @@ export const DELETE = withAuth(
     return NextResponse.json(response);
   },
   {
-    requiredRole: ["owner"],
+    requiredScopes: ["workspaces.write"],
   },
 );

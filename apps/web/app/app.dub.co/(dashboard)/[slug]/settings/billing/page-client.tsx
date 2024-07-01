@@ -171,7 +171,7 @@ export default function WorkspaceBillingClient() {
               title="Teammates"
               unit="users"
               tooltip="Number of users added to your workspace."
-              usage={users?.length}
+              usage={users?.filter((user) => !user.isMachine).length}
               usageLimit={usersLimit}
               numberOnly
             />
@@ -261,7 +261,7 @@ function UsageCategory({
         <div className="mt-2 flex flex-col space-y-2">
           {usage !== undefined && usageLimit ? (
             <p className="text-sm text-gray-600">
-              <NumberTooltip value={usage}>
+              <NumberTooltip value={usage} unit={unit}>
                 <span>{nFormatter(usage)} </span>
               </NumberTooltip>
               / {nFormatter(usageLimit)} {unit} (

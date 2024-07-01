@@ -6,13 +6,14 @@ import {
   validSlugRegex,
 } from "@dub/utils";
 import slugify from "@sindresorhus/slugify";
-import { planSchema, roleSchema } from ".";
+import { DomainSchema } from "./domains";
+import { planSchema, roleSchema } from "./misc";
 
-export const DomainSchema = z.object({
-  slug: z.string().describe("The domain of the workspace."),
-  primary: z
-    .boolean()
-    .describe("Indicates if the domain is the primary domain."),
+export const workspaceIdSchema = z.object({
+  workspaceId: z
+    .string()
+    .min(1, "Workspace ID is required.")
+    .describe("The ID of the workspace the link belongs to."),
 });
 
 export const WorkspaceSchema = z
@@ -39,6 +40,10 @@ export const WorkspaceSchema = z
       .describe(
         "The date and time when the billing cycle starts for the workspace.",
       ),
+    stripeConnectId: z
+      .string()
+      .nullable()
+      .describe("[BETA]: The Stripe Connect ID of the workspace."),
     createdAt: z
       .date()
       .describe("The date and time when the workspace was created."),
@@ -49,7 +54,24 @@ export const WorkspaceSchema = z
         }),
       )
       .describe("The role of the authenticated user in the workspace."),
-    domains: z.array(DomainSchema).describe("The domains of the workspace."),
+    domains: z
+      .array(
+        DomainSchema.pick({
+          slug: true,
+          primary: true,
+        }),
+      )
+      .describe("The domains of the workspace."),
+    inviteCode: z
+      .string()
+      .nullable()
+      .describe("The invite code of the workspace."),
+    betaTester: z
+      .boolean()
+      .optional()
+      .describe(
+        "Whether the workspace is enrolled in the beta testing program.",
+      ),
   })
   .openapi({
     title: "Workspace",
@@ -73,3 +95,10 @@ export const createWorkspaceSchema = z.object({
     })
     .optional(),
 });
+
+export const updateWorkspaceSchema = createWorkspaceSchema
+  .pick({
+    name: true,
+    slug: true,
+  })
+  .partial();

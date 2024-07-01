@@ -3,10 +3,14 @@ import "./styles.css";
 
 // components
 export * from "./accordion";
+export * from "./alert";
 export * from "./avatar";
 export * from "./badge";
 export * from "./button";
 export * from "./checkbox";
+export * from "./date-picker";
+export * from "./file-upload";
+export * from "./filter";
 export * from "./form";
 export * from "./input-select";
 export * from "./label";
@@ -33,6 +37,7 @@ export * from "./nav-mobile";
 export * from "./content";
 
 // misc
+export * from "./animated-size-container";
 export * from "./blur-image";
 export * from "./client-only";
 export * from "./copy-button";
@@ -44,3 +49,9 @@ export * from "./link-preview";
 export * from "./popup";
 export * from "./progress-bar";
 export * from "./tab-select";
+
+// logos
+export * from "./composite-logo";
+export * from "./logo";
+export * from "./nav-logo";
+export * from "./wordmark";

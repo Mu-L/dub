@@ -1,15 +1,20 @@
 import { openApiErrorResponses } from "@/lib/openapi/responses";
-import { LinkSchema, TagSchema, WorkspaceSchema } from "@/lib/zod/schemas";
+import { DomainSchema } from "@/lib/zod/schemas/domains";
+import { LinkSchema } from "@/lib/zod/schemas/links";
+import { TagSchema } from "@/lib/zod/schemas/tags";
+import { WorkspaceSchema } from "@/lib/zod/schemas/workspaces";
 import { API_DOMAIN } from "@dub/utils";
-import { ZodOpenApiObject } from "zod-openapi";
-import { analyticsPaths } from "./analytics";
+import { createDocument } from "zod-openapi";
+import { analyticsPath } from "./analytics";
+import { domainsPaths } from "./domains";
 import { linksPaths } from "./links";
 import { metatagsPath } from "./metatags";
 import { qrCodePaths } from "./qr";
 import { tagsPaths } from "./tags";
+import { trackPaths } from "./track";
 import { workspacesPaths } from "./workspaces";
 
-export const openApiObject: ZodOpenApiObject = {
+export const document = createDocument({
   openapi: "3.0.3",
   info: {
     title: "Dub.co API",
@@ -35,9 +40,11 @@ export const openApiObject: ZodOpenApiObject = {
   paths: {
     ...linksPaths,
     ...qrCodePaths,
-    ...analyticsPaths,
+    ...analyticsPath,
     ...workspacesPaths,
     ...tagsPaths,
+    ...domainsPaths,
+    ...trackPaths,
     ...metatagsPath,
   },
   components: {
@@ -45,6 +52,7 @@ export const openApiObject: ZodOpenApiObject = {
       LinkSchema,
       WorkspaceSchema,
       TagSchema,
+      DomainSchema,
     },
     securitySchemes: {
       token: {
@@ -64,7 +72,7 @@ export const openApiObject: ZodOpenApiObject = {
         "x-speakeasy-globals-hidden": true,
         name: "workspaceId",
         in: "query",
-        required: true,
+        deprecated: true,
         schema: {
           type: "string",
         },
@@ -80,4 +88,4 @@ export const openApiObject: ZodOpenApiObject = {
       },
     ],
   },
-};
+});
