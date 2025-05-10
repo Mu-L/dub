@@ -30,21 +30,12 @@ export const GET = withWorkspace(
       take: 100,
     });
 
-    const flags = await getFeatureFlags({
-      workspaceId: workspace.id,
-    });
-
     return NextResponse.json(
       {
         ...WorkspaceSchemaExtended.parse({
           ...workspace,
           id: prefixWorkspaceId(workspace.id),
           domains,
-          // TODO: Remove this once Folders goes GA
-          flags: {
-            ...flags,
-            linkFolders: flags.linkFolders || workspace.partnersEnabled,
-          },
         }),
       },
       { headers },

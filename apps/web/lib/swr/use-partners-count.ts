@@ -42,8 +42,11 @@ export default function usePartnersCount<T>({
       );
 
   const { data: partnersCount, error } = useSWR<PartnersCount>(
-    enabled !== false ? `/api/partners/count${queryString}` : null,
+    enabled !== false && programId ? `/api/partners/count${queryString}` : null,
     fetcher,
+    {
+      keepPreviousData: true,
+    },
   );
 
   return {

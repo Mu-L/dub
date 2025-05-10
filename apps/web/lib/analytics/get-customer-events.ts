@@ -8,27 +8,24 @@ import {
   clickEventResponseSchema,
   clickEventSchema,
 } from "../zod/schemas/clicks";
-import { leadEventResponseSchema } from "../zod/schemas/leads";
-import { saleEventResponseSchema } from "../zod/schemas/sales";
-import { EventsFilters } from "./types";
-import { getStartEndDates } from "./utils/get-start-end-dates";
+import {
+  leadEventResponseSchema,
+  leadEventResponseSchemaExtended,
+} from "../zod/schemas/leads";
+import {
+  saleEventResponseSchema,
+  saleEventResponseSchemaExtended,
+} from "../zod/schemas/sales";
 
-export const getCustomerEvents = async (
-  { customerId, clickId }: { customerId: string; clickId?: string | null },
-  params: Pick<
-    EventsFilters,
-    "sortOrder" | "start" | "end" | "dataAvailableFrom" | "interval"
-  >,
-) => {
-  let { sortOrder, start, end, dataAvailableFrom, interval } = params;
-
-  const { startDate, endDate } = getStartEndDates({
-    interval,
-    start,
-    end,
-    dataAvailableFrom,
-  });
-
+export const getCustomerEvents = async ({
+  customerId,
+  linkIds,
+  includeMetadata,
+}: {
+  customerId: string;
+  linkIds?: string[];
+  includeMetadata?: boolean;
+}) => {
   const pipe = tb.buildPipe({
     pipe: "v2_customer_events",
     parameters: z.any(), // TODO
@@ -36,12 +33,8 @@ export const getCustomerEvents = async (
   });
 
   const response = await pipe({
-    ...params,
     customerId,
-    ...(clickId ? { clickId } : {}),
-    order: sortOrder,
-    start: startDate.toISOString().replace("T", " ").replace("Z", ""),
-    end: endDate.toISOString().replace("T", " ").replace("Z", ""),
+    ...(linkIds ? { linkIds } : {}),
   });
 
   const linksMap = await getLinksMap(response.data.map((d) => d.link_id));
@@ -90,8 +83,14 @@ export const getCustomerEvents = async (
 
       return {
         click: clickEventResponseSchema,
-        lead: leadEventResponseSchema.omit({ customer: true }),
-        sale: saleEventResponseSchema.omit({ customer: true }),
+        lead: (includeMetadata
+          ? leadEventResponseSchemaExtended
+          : leadEventResponseSchema
+        ).omit({ customer: true }),
+        sale: (includeMetadata
+          ? saleEventResponseSchemaExtended
+          : saleEventResponseSchema
+        ).omit({ customer: true }),
       }[evt.event].parse(eventData);
     })
     .filter((d) => d !== null);

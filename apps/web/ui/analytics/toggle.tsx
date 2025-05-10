@@ -7,6 +7,7 @@ import {
 } from "@/lib/analytics/constants";
 import { validDateRangeForPlan } from "@/lib/analytics/utils";
 import { getStartEndDates } from "@/lib/analytics/utils/get-start-end-dates";
+import { getPlanCapabilities } from "@/lib/plan-capabilities";
 import useCustomer from "@/lib/swr/use-customer";
 import useCustomers from "@/lib/swr/use-customers";
 import useCustomersCount from "@/lib/swr/use-customers-count";
@@ -15,6 +16,7 @@ import useDomainsCount from "@/lib/swr/use-domains-count";
 import useFolder from "@/lib/swr/use-folder";
 import useFolders from "@/lib/swr/use-folders";
 import useFoldersCount from "@/lib/swr/use-folders-count";
+import usePartnerCustomer from "@/lib/swr/use-partner-customer";
 import useTags from "@/lib/swr/use-tags";
 import useTagsCount from "@/lib/swr/use-tags-count";
 import useWorkspace from "@/lib/swr/use-workspace";
@@ -75,6 +77,8 @@ import {
   REGIONS,
 } from "@dub/utils";
 import { readStreamableValue } from "ai/rsc";
+import Link from "next/link";
+import { useParams } from "next/navigation";
 import posthog from "posthog-js";
 import {
   ComponentProps,
@@ -101,10 +105,10 @@ export default function Toggle({
 }: {
   page?: "analytics" | "events";
 }) {
-  const { slug, plan, flags, createdAt } = useWorkspace();
+  const { slug, programSlug } = useParams();
+  const { plan, createdAt } = useWorkspace();
 
-  const { router, queryParams, searchParamsObj, getQueryString } =
-    useRouterStuff();
+  const { queryParams, searchParamsObj, getQueryString } = useRouterStuff();
 
   const {
     selectedTab,
@@ -147,7 +151,7 @@ export default function Toggle({
         foldersAsync && selectedFilter === "folderId" ? debouncedSearch : "",
     },
   });
-  const { customers, loading: loadingCustomers } = useCustomers({
+  const { customers } = useCustomers({
     query: {
       search:
         customersAsync && selectedFilter === "customerId"
@@ -155,6 +159,7 @@ export default function Toggle({
           : "",
     },
   });
+  const { canManageCustomers } = getPlanCapabilities(plan);
 
   const {
     allDomains: domains,
@@ -185,9 +190,15 @@ export default function Toggle({
   });
 
   const selectedCustomerId = searchParamsObj.customerId;
-  const { data: selectedCustomer } = useCustomer({
+
+  const { data: selectedCustomerWorkspace } = useCustomer({
     customerId: selectedCustomerId,
   });
+  const { data: selectedCustomerPartner } = usePartnerCustomer({
+    customerId: selectedCustomerId,
+  });
+
+  const selectedCustomer = selectedCustomerPartner || selectedCustomerWorkspace;
 
   const [requestedFilters, setRequestedFilters] = useState<string[]>([]);
 
@@ -214,12 +225,29 @@ export default function Toggle({
       ...(root ? [{ key: "root", value: root === "true" }] : []),
       // Handle folderId special case
       ...(folderId ? [{ key: "folderId", value: folderId }] : []),
+      // Handle customerId special case
+      ...(selectedCustomer
+        ? [
+            {
+              key: "customerId",
+              value:
+                selectedCustomer.email ||
+                selectedCustomer["name"] ||
+                selectedCustomer["externalId"],
+            },
+          ]
+        : []),
     ];
 
     // Handle all other filters dynamically
     VALID_ANALYTICS_FILTERS.forEach((filter) => {
       // Skip special cases we handled above
-      if (["domain", "key", "tagId", "tagIds", "root"].includes(filter)) return;
+      if (
+        ["domain", "key", "tagId", "tagIds", "root", "customerId"].includes(
+          filter,
+        )
+      )
+        return;
       // also skip date range filters and qr
       if (["interval", "start", "end", "qr"].includes(filter)) return;
 
@@ -230,7 +258,13 @@ export default function Toggle({
     });
 
     return filters;
-  }, [searchParamsObj, selectedTagIds]);
+  }, [
+    searchParamsObj,
+    selectedTagIds,
+    partnerPage,
+    selectedCustomerId,
+    selectedCustomer,
+  ]);
 
   const isRequested = useCallback(
     (key: string) =>
@@ -348,8 +382,53 @@ export default function Toggle({
           label: linkConstructor({ domain, key, pretty: true }),
           right: nFormatter(count, { full: true }),
           data: { url },
+          permalink:
+            slug && !partnerPage
+              ? `/${slug}/links/${linkConstructor({ domain, key, pretty: true })}`
+              : undefined,
         }),
       ) ?? null,
+  };
+
+  const CustomerFilterItem = {
+    key: "customerId",
+    icon: User,
+    label: "Customer",
+    hideInFilterDropdown: partnerPage,
+    shouldFilter: !customersAsync,
+    getOptionIcon: () => {
+      return selectedCustomer ? (
+        <img
+          src={
+            selectedCustomer["avatar"] ||
+            `${OG_AVATAR_URL}${selectedCustomer.id}`
+          }
+          alt={`${selectedCustomer.email} avatar`}
+          className="size-4 rounded-full"
+        />
+      ) : null;
+    },
+    getOptionPermalink: () => {
+      return programSlug
+        ? `/programs/${programSlug}/customers/${selectedCustomerId}`
+        : slug
+          ? `/${slug}/customers/${selectedCustomerId}`
+          : null;
+    },
+    options:
+      customers?.map(({ id, email, name, avatar }) => {
+        return {
+          value: id,
+          label: email ?? name,
+          icon: (
+            <img
+              src={avatar || `${OG_AVATAR_URL}${id}`}
+              alt={`${email} avatar`}
+              className="size-4 rounded-full"
+            />
+          ),
+        };
+      }) ?? null,
   };
 
   const filters: ComponentProps<typeof Filter.Select>["filters"] = useMemo(
@@ -369,76 +448,49 @@ export default function Toggle({
       ...(dashboardProps
         ? []
         : partnerPage
-          ? [LinkFilterItem]
+          ? [LinkFilterItem, CustomerFilterItem]
           : [
-              ...(["leads", "sales"].includes(selectedTab)
-                ? [
-                    {
-                      key: "customerId",
-                      icon: User,
-                      label: "Customer",
-                      shouldFilter: !customersAsync,
-                      options:
-                        customers?.map(({ id, email, name, avatar }) => {
-                          return {
-                            value: id,
-                            label: email ?? name,
-                            icon: (
-                              <img
-                                src={avatar || `${OG_AVATAR_URL}${id}`}
-                                alt={`${email} avatar`}
-                                className="size-4 rounded-full"
-                              />
-                            ),
-                          };
-                        }) ?? null,
-                    },
-                  ]
-                : []),
-              ...(flags?.linkFolders
-                ? [
-                    {
-                      key: "folderId",
-                      icon: Folder,
-                      label: "Folder",
-                      shouldFilter: !foldersAsync,
-                      getOptionIcon: (value, props) => {
-                        const folderName = props.option?.label;
-                        const folder = folders?.find(
-                          ({ name }) => name === folderName,
-                        );
+              ...(canManageCustomers ? [CustomerFilterItem] : []),
+              {
+                key: "folderId",
+                icon: Folder,
+                label: "Folder",
+                shouldFilter: !foldersAsync,
+                getOptionIcon: (value, props) => {
+                  const folderName = props.option?.label;
+                  const folder = folders?.find(
+                    ({ name }) => name === folderName,
+                  );
 
-                        return folder ? (
-                          <FolderIcon
-                            folder={folder}
-                            shape="square"
-                            iconClassName="size-3"
-                          />
-                        ) : null;
-                      },
-                      options: loadingFolders
-                        ? null
-                        : [
-                            ...(folders || []),
-                            // Add currently filtered folder if not already in the list
-                            ...(selectedFolder &&
-                            !folders?.find((f) => f.id === selectedFolder.id)
-                              ? [selectedFolder]
-                              : []),
-                          ].map((folder) => ({
-                            value: folder.id,
-                            icon: (
-                              <FolderIcon
-                                folder={folder}
-                                shape="square"
-                                iconClassName="size-3"
-                              />
-                            ),
-                            label: folder.name,
-                          })),
-                    },
-                  ]
-                : []),
+                  return folder ? (
+                    <FolderIcon
+                      folder={folder}
+                      shape="square"
+                      iconClassName="size-3"
+                    />
+                  ) : null;
+                },
+                options: loadingFolders
+                  ? null
+                  : [
+                      ...(folders || []),
+                      // Add currently filtered folder if not already in the list
+                      ...(selectedFolder &&
+                      !folders?.find((f) => f.id === selectedFolder.id)
+                        ? [selectedFolder]
+                        : []),
+                    ].map((folder) => ({
+                      value: folder.id,
+                      icon: (
+                        <FolderIcon
+                          folder={folder}
+                          shape="square"
+                          iconClassName="size-3"
+                        />
+                      ),
+                      label: folder.name,
+                    })),
+              },
               {
                 key: "tagIds",
                 icon: Tag,
@@ -531,7 +583,7 @@ export default function Toggle({
         getOptionIcon: (value) => (
           <img
             alt={value}
-            src={`https://flag.vercel.app/m/${value}.svg`}
+            src={`https://hatscripts.github.io/circle-flags/flags/${value.toLowerCase()}.svg`}
             className="h-2.5 w-4"
           />
         ),
@@ -932,7 +984,7 @@ export default function Toggle({
                 rel="noreferrer"
               >
                 <BlurImage
-                  alt={url || "Dub.co"}
+                  alt={url || "Dub"}
                   src={
                     url
                       ? `${GOOGLE_FAVICON_URL}${getApexDomain(url)}`
@@ -967,42 +1019,38 @@ export default function Toggle({
                 {isMobile ? filterSelect : dateRangePicker}
                 {!dashboardProps && (
                   <div className="flex grow justify-end gap-2">
-                    {page === "analytics" && !partnerPage && (
+                    {page === "analytics" && (
                       <>
                         {domain && key && <ShareButton />}
-                        <Button
-                          variant="secondary"
-                          className="w-fit"
-                          icon={
-                            <SquareLayoutGrid6 className="h-4 w-4 text-neutral-600" />
-                          }
-                          text={isMobile ? undefined : "Switch to Events"}
-                          onClick={() => {
-                            if (dashboardProps) {
-                              window.open("https://d.to/events");
-                            } else {
-                              router.push(
-                                `/${slug}/events${getQueryString({}, { exclude: ["view"] })}`,
-                              );
+                        <Link
+                          href={`/${partnerPage ? `programs/${programSlug}/` : adminPage ? "" : `${slug}/`}events${getQueryString()}`}
+                        >
+                          <Button
+                            variant="secondary"
+                            className="w-fit"
+                            icon={
+                              <SquareLayoutGrid6 className="h-4 w-4 text-neutral-600" />
                             }
-                          }}
-                        />
+                            text={isMobile ? undefined : "Switch to Events"}
+                          />
+                        </Link>
                         <AnalyticsOptions />
                       </>
                     )}
-                    {page === "events" && !partnerPage && (
+                    {page === "events" && (
                       <>
-                        <Button
-                          variant="secondary"
-                          className="w-fit"
-                          icon={
-                            <ChartLine className="h-4 w-4 text-neutral-600" />
-                          }
-                          text={isMobile ? undefined : "Switch to Analytics"}
-                          onClick={() =>
-                            router.push(`/${slug}/analytics${getQueryString()}`)
-                          }
-                        />
+                        <Link
+                          href={`/${partnerPage ? `programs/${programSlug}/` : adminPage ? "" : `${slug}/`}analytics${getQueryString()}`}
+                        >
+                          <Button
+                            variant="secondary"
+                            className="w-fit"
+                            icon={
+                              <ChartLine className="h-4 w-4 text-neutral-600" />
+                            }
+                            text={isMobile ? undefined : "Switch to Analytics"}
+                          />
+                        </Link>
                         <EventsOptions />
                       </>
                     )}
