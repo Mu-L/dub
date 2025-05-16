@@ -94,7 +94,7 @@ export default function AnalyticsProvider({
 }>) {
   const searchParams = useSearchParams();
   const pathname = usePathname();
-  const { id: workspaceId, slug, domains } = useWorkspace();
+  const { id: workspaceId, slug } = useWorkspace();
 
   const [requiresUpgrade, setRequiresUpgrade] = useState(false);
 
@@ -189,13 +189,14 @@ export default function AnalyticsProvider({
       return {
         basePath: "analytics",
         baseApiPath: "/api/admin/analytics",
+        eventsApiPath: "/api/admin/events",
         domain: domainSlug,
       };
     } else if (slug) {
       return {
         basePath: `/${slug}/analytics`,
-        baseApiPath: `/api/analytics`,
-        eventsApiPath: `/api/events`,
+        baseApiPath: "/api/analytics",
+        eventsApiPath: "/api/events",
         domain: domainSlug,
       };
     } else if (partner?.id && programSlug) {

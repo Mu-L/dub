@@ -1,4 +1,4 @@
-import { SHEET_MAX_ITEMS } from "@/lib/partners/constants";
+import { PAYOUTS_SHEET_ITEMS_LIMIT } from "@/lib/partners/constants";
 import useWorkspace from "@/lib/swr/use-workspace";
 import { CommissionResponse, PayoutResponse } from "@/lib/types";
 import { X } from "@/ui/shared/icons";
@@ -49,7 +49,13 @@ function PayoutDetailsSheetContent({
     isLoading,
     error,
   } = useSWR<CommissionResponse[]>(
-    `/api/programs/${programId}/commissions?workspaceId=${workspaceId}&payoutId=${payout.id}&interval=all&pageSize=${SHEET_MAX_ITEMS}`,
+    `/api/commissions?${new URLSearchParams({
+      workspaceId: workspaceId!,
+      programId: programId,
+      payoutId: payout.id,
+      interval: "all",
+      pageSize: PAYOUTS_SHEET_ITEMS_LIMIT.toString(),
+    })}`,
     fetcher,
   );
 
