@@ -2,6 +2,7 @@ import {
   LOCALHOST_GEO_DATA,
   LOCALHOST_IP,
   capitalize,
+  fetchWithRetry,
   getDomainWithoutWWW,
 } from "@dub/utils";
 import { EU_COUNTRY_CODES } from "@dub/utils/src/constants/countries";
@@ -37,7 +38,7 @@ export async function recordClick({
   skipRatelimit,
   timestamp,
   referrer,
-  trackConversion,
+  shouldPassClickId,
 }: {
   req: Request;
   clickId?: string;
@@ -50,7 +51,7 @@ export async function recordClick({
   skipRatelimit?: boolean;
   timestamp?: string;
   referrer?: string;
-  trackConversion?: boolean;
+  shouldPassClickId?: boolean;
 }) {
   if (!clickId) {
     return null;
@@ -149,7 +150,7 @@ export async function recordClick({
   const hasWebhooks = webhookIds && webhookIds.length > 0;
 
   const [, , , , workspaceRows] = await Promise.allSettled([
-    fetch(
+    fetchWithRetry(
       `${process.env.TINYBIRD_API_URL}/v0/events?name=dub_click_events&wait=true`,
       {
         method: "POST",
@@ -165,7 +166,7 @@ export async function recordClick({
 
     // cache the click data for 5 mins
     // we're doing this because ingested click events are not available immediately in Tinybird
-    trackConversion &&
+    shouldPassClickId &&
       redis.set(`clickCache:${clickId}`, clickData, {
         ex: 60 * 5,
       }),

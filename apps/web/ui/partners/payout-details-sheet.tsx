@@ -1,4 +1,4 @@
-import { SHEET_MAX_ITEMS } from "@/lib/partners/constants";
+import { PAYOUTS_SHEET_ITEMS_LIMIT } from "@/lib/partners/constants";
 import useWorkspace from "@/lib/swr/use-workspace";
 import { CommissionResponse, PayoutResponse } from "@/lib/types";
 import { X } from "@/ui/shared/icons";
@@ -37,19 +37,22 @@ type PayoutDetailsSheetProps = {
   setIsOpen: Dispatch<SetStateAction<boolean>>;
 };
 
-function PayoutDetailsSheetContent({
-  payout,
-  setIsOpen,
-}: PayoutDetailsSheetProps) {
+function PayoutDetailsSheetContent({ payout }: PayoutDetailsSheetProps) {
   const { id: workspaceId, slug } = useWorkspace();
   const { programId } = useParams() as { programId: string };
+  const { queryParams } = useRouterStuff();
 
   const {
     data: commissions,
     isLoading,
     error,
   } = useSWR<CommissionResponse[]>(
-    `/api/programs/${programId}/commissions?workspaceId=${workspaceId}&payoutId=${payout.id}&interval=all&pageSize=${SHEET_MAX_ITEMS}`,
+    `/api/commissions?${new URLSearchParams({
+      workspaceId: workspaceId!,
+      payoutId: payout.id,
+      interval: "all",
+      pageSize: PAYOUTS_SHEET_ITEMS_LIMIT.toString(),
+    })}`,
     fetcher,
   );
 
@@ -180,6 +183,19 @@ function PayoutDetailsSheetContent({
     error: error ? "Failed to load commissions" : undefined,
   } as any);
 
+  const ViewAllPayoutsLink = () => (
+    <Link
+      href={`/${slug}/programs/${programId}/commissions?payoutId=${payout.id}&interval=all`}
+      target="_blank"
+      className={cn(
+        buttonVariants({ variant: "secondary" }),
+        "flex h-7 items-center rounded-lg border px-2 text-sm",
+      )}
+    >
+      View all
+    </Link>
+  );
+
   return (
     <div className="flex h-full flex-col">
       <div className="sticky top-0 z-10 flex items-start justify-between border-b border-neutral-200 bg-white p-6">
@@ -219,18 +235,33 @@ function PayoutDetailsSheetContent({
           <>
             <div className="p-6 pt-2">
               <Table {...commissionsTable} />
+
+              {payout.status === "pending" && (
+                <div className="flex justify-end py-4">
+                  <ViewAllPayoutsLink />
+                </div>
+              )}
             </div>
             <div className="sticky bottom-0 z-10 flex justify-end border-t border-neutral-200 bg-white px-6 py-4">
-              <Link
-                href={`/${slug}/programs/${programId}/commissions?payoutId=${payout.id}&interval=all`}
-                target="_blank"
-                className={cn(
-                  buttonVariants({ variant: "secondary" }),
-                  "flex h-7 items-center rounded-lg border px-2 text-sm",
-                )}
-              >
-                View all
-              </Link>
+              {payout.status === "pending" ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  loading={isLoading}
+                  text="Confirm all pending payouts"
+                  onClick={() => {
+                    queryParams({
+                      set: {
+                        confirmPayouts: "true",
+                      },
+                      del: "payoutId",
+                      scroll: false,
+                    });
+                  }}
+                />
+              ) : (
+                <ViewAllPayoutsLink />
+              )}
             </div>
           </>
         ) : null}

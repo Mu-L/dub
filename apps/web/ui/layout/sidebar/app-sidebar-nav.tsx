@@ -1,12 +1,11 @@
 "use client";
 
-import usePrograms from "@/lib/swr/use-programs";
+import useWorkspace from "@/lib/swr/use-workspace";
 import { useRouterStuff } from "@dub/ui";
 import {
   Books2,
   CircleInfo,
   ConnectedDots,
-  ConnectedDots4,
   CubeSettings,
   Gear2,
   Gift,
@@ -14,7 +13,6 @@ import {
   Key,
   Receipt2,
   ShieldCheck,
-  Users2,
   Users6,
   Webhook,
 } from "@dub/ui/icons";
@@ -23,10 +21,11 @@ import { useSession } from "next-auth/react";
 import { useParams, usePathname } from "next/navigation";
 import { ReactNode, useMemo } from "react";
 import UserSurveyButton from "../user-survey";
+import { ConnectedDots4 } from "./icons/connected-dots4";
 import { CursorRays } from "./icons/cursor-rays";
-import { Gear } from "./icons/gear";
 import { Hyperlink } from "./icons/hyperlink";
 import { LinesY } from "./icons/lines-y";
+import { User } from "./icons/user";
 import { SidebarNav, SidebarNavAreas } from "./sidebar-nav";
 import { Usage } from "./usage";
 import { WorkspaceDropdown } from "./workspace-dropdown";
@@ -35,12 +34,12 @@ const NAV_AREAS: SidebarNavAreas<{
   slug: string;
   pathname: string;
   queryString: string;
-  programs?: { id: string }[];
+  defaultProgramId?: string;
   session?: Session | null;
   showNews?: boolean;
 }> = {
   // Top-level
-  default: ({ slug, pathname, queryString, programs, showNews }) => ({
+  default: ({ slug, pathname, queryString, defaultProgramId, showNews }) => ({
     showSwitcher: true,
     showNews,
     direction: "left",
@@ -62,63 +61,49 @@ const NAV_AREAS: SidebarNavAreas<{
             icon: CursorRays,
             href: `/${slug}/events${pathname === `/${slug}/events` ? "" : queryString}`,
           },
-          ...(pathname.startsWith(`/${slug}/customers`)
+          {
+            name: "Customers",
+            icon: User,
+            href: `/${slug}/customers`,
+          },
+          ...(defaultProgramId
             ? [
                 {
-                  name: "Customers",
-                  icon: Users2,
-                  href: `/${slug}/customers`,
-                },
-              ]
-            : []),
-          {
-            name: "Settings",
-            icon: Gear,
-            href: `/${slug}/settings`,
-          },
-        ],
-      },
-      ...(programs?.length
-        ? [
-            {
-              name: "Programs",
-              items: [
-                {
-                  name: "Affiliate",
+                  name: "Program",
                   icon: ConnectedDots4,
-                  href: `/${slug}/programs/${programs[0].id}`,
+                  href: `/${slug}/programs/${defaultProgramId}`,
                   items: [
                     {
                       name: "Overview",
-                      href: `/${slug}/programs/${programs[0].id}`,
+                      href: `/${slug}/programs/${defaultProgramId}`,
                       exact: true,
                     },
                     {
                       name: "Partners",
-                      href: `/${slug}/programs/${programs[0].id}/partners`,
+                      href: `/${slug}/programs/${defaultProgramId}/partners`,
                     },
                     {
                       name: "Commissions",
-                      href: `/${slug}/programs/${programs[0].id}/commissions`,
+                      href: `/${slug}/programs/${defaultProgramId}/commissions`,
                     },
                     {
                       name: "Payouts",
-                      href: `/${slug}/programs/${programs[0].id}/payouts?status=pending`,
+                      href: `/${slug}/programs/${defaultProgramId}/payouts?status=pending`,
                     },
                     {
-                      name: "Resources",
-                      href: `/${slug}/programs/${programs[0].id}/resources`,
+                      name: "Branding",
+                      href: `/${slug}/programs/${defaultProgramId}/branding`,
                     },
                     {
                       name: "Configuration",
-                      href: `/${slug}/programs/${programs[0].id}/settings`,
+                      href: `/${slug}/programs/${defaultProgramId}/settings`,
                     },
                   ],
                 },
-              ],
-            },
-          ]
-        : []),
+              ]
+            : []),
+        ],
+      },
     ],
   }),
 
@@ -149,7 +134,7 @@ const NAV_AREAS: SidebarNavAreas<{
           {
             name: "Library",
             icon: Books2,
-            href: `/${slug}/settings/library`,
+            href: `/${slug}/settings/library/folders`,
           },
           {
             name: "People",
@@ -247,7 +232,7 @@ export function AppSidebarNav({
   const pathname = usePathname();
   const { getQueryString } = useRouterStuff();
   const { data: session } = useSession();
-  const { programs } = usePrograms();
+  const { defaultProgramId } = useWorkspace();
 
   const currentArea = useMemo(() => {
     return pathname.startsWith("/account/settings")
@@ -267,9 +252,9 @@ export function AppSidebarNav({
         queryString: getQueryString(undefined, {
           include: ["folderId", "tagIds"],
         }),
-        programs,
         session: session || undefined,
         showNews: pathname.startsWith(`/${slug}/programs/`) ? false : true,
+        defaultProgramId: defaultProgramId || undefined,
       }}
       toolContent={toolContent}
       newsContent={newsContent}

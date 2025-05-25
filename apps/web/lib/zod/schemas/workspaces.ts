@@ -2,7 +2,7 @@ import z from "@/lib/zod";
 import { DEFAULT_REDIRECTS, RESERVED_SLUGS, validSlugRegex } from "@dub/utils";
 import slugify from "@sindresorhus/slugify";
 import { DomainSchema } from "./domains";
-import { planSchema, roleSchema } from "./misc";
+import { planSchema, roleSchema, uploadedImageSchema } from "./misc";
 
 export const workspaceIdSchema = z.object({
   workspaceId: z
@@ -139,7 +139,7 @@ export const createWorkspaceSchema = z.object({
         message: "Cannot use reserved slugs",
       },
     ),
-  logo: z.string().optional(),
+  logo: uploadedImageSchema.nullish(),
   conversionEnabled: z.boolean().optional(),
 });
 
@@ -155,9 +155,16 @@ export const notificationTypes = z.enum([
 ]);
 
 export const WorkspaceSchemaExtended = WorkspaceSchema.extend({
+  defaultProgramId: z.string().nullable(),
   users: z.array(
     WorkspaceSchema.shape.users.element.extend({
       workspacePreferences: z.record(z.any()).nullish(),
     }),
   ),
 });
+
+export const workspaceStoreKeys = z.enum([
+  "programOnboarding", // json
+  "conversionsOnboarding", // boolean
+  "dotLinkOfferDismissed", // string
+]);
