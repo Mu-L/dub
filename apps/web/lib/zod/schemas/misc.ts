@@ -3,12 +3,15 @@ import { WorkspaceRole } from "@dub/prisma/client";
 import * as z from "zod/v4";
 
 export const RECURRING_MAX_DURATIONS = [0, 1, 3, 6, 12, 24];
+export const MAX_DURATION_LIMIT = 600;
 
 export const maxDurationSchema = z.coerce
   .number()
   .int({ message: "Max duration must be an integer." })
   .nonnegative({ message: "Max duration must be 0 or greater." })
-  .max(600, { message: "Max duration must be 600 months (50 years) or less." })
+  .max(MAX_DURATION_LIMIT, {
+    message: "Max duration must be 600 months (50 years) or less.",
+  })
   .nullish();
 
 export const planSchema = z.enum(plans).describe("The plan of the workspace.");

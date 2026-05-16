@@ -1,5 +1,6 @@
 "use client";
 
+import { MAX_DURATION_LIMIT } from "@/lib/zod/schemas/misc";
 import { pluralize } from "@dub/utils";
 import { ChangeEvent, useContext, useEffect, useState } from "react";
 import {
@@ -12,8 +13,7 @@ export function DurationPopoverContent({
   onChange,
   presetDurations,
 }: DurationPopoverContentProps) {
-  const { setIsOpen } = useContext(InlineBadgePopoverContext);
-  const customInputMax = 600;
+  const { isOpen, setIsOpen } = useContext(InlineBadgePopoverContext);
   const [customDurationInput, setCustomDurationInput] = useState<string>(() => {
     if (
       value !== null &&
@@ -29,6 +29,8 @@ export function DurationPopoverContent({
   const [showCustomInput, setShowCustomInput] = useState(false);
 
   useEffect(() => {
+    if (showCustomInput) return;
+
     if (
       value === null ||
       value === undefined ||
@@ -37,12 +39,17 @@ export function DurationPopoverContent({
       presetDurations.includes(Number(value))
     ) {
       setCustomDurationInput("");
-      setShowCustomInput(false);
       return;
     }
 
     setCustomDurationInput(value.toString());
-  }, [value, presetDurations]);
+  }, [value, presetDurations, showCustomInput]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (customDurationInput === "") return;
+    setShowCustomInput(true);
+  }, [isOpen, customDurationInput]);
 
   const isPresetValue =
     value === Infinity ||
@@ -63,7 +70,7 @@ export function DurationPopoverContent({
           <input
             type="number"
             min="0"
-            max={customInputMax.toString()}
+            max={MAX_DURATION_LIMIT.toString()}
             step="1"
             autoFocus
             placeholder="e.g. 24"
@@ -72,7 +79,7 @@ export function DurationPopoverContent({
             onChange={(e: ChangeEvent<HTMLInputElement>) => {
               const raw = e.target.value;
               const parsed = parseInt(raw, 10);
-              const clamped = Math.min(parsed, customInputMax);
+              const clamped = Math.max(0, Math.min(parsed, MAX_DURATION_LIMIT));
               const display = isNaN(parsed) ? raw : clamped.toString();
               setCustomDurationInput(display);
               if (!isNaN(parsed) && parsed >= 0) {
